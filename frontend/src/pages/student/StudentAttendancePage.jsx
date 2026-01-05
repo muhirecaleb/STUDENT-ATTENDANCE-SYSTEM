@@ -73,7 +73,7 @@ const StudentAttendancePage = () => {
         {
           headerName: "#",
           valueGetter: (params) => params.node.rowIndex + 1,
-          width: 60,
+          width: 70,
           sortable: false,
           filter: false,
           pinned: "left",
@@ -82,29 +82,35 @@ const StudentAttendancePage = () => {
           field: "date",
           headerName: "Date",
           filter: true,
-          width: 120,
+          width: 150,
           pinned: "left",
-        }, 
+        },
       ];
 
-      const dayColumns = Array.from({ length: daysInMonth }, (_, dayIndex) => ({
-        headerName: `${dayIndex + 1}`,
-        field: `day_${dayIndex + 1}`,
-        editable: false,
-        sortable: false,
-        filter: false,
-        width: 50,
-        dayIndex: dayIndex,
-        // return a React element so React can render it properly
-        cellRendererFramework: (params) => (
-          <input
-            type="checkbox"
-            disabled
-            checked={!!params.value}
-            aria-label={`day-${dayIndex + 1}`}
-          />
-        ),
-      }));
+      const dayColumns = Array.from({ length: daysInMonth }, (_, dayIndex) => {
+        const date = new Date(year, month - 1, dayIndex + 1);
+        const dayName = date
+          .toLocaleDateString("en-US", { weekday: "short" })
+          .toLowerCase();
+        return {
+          headerName: `${dayName}, ${dayIndex + 1}`,
+          field: `day_${dayIndex + 1}`,
+          editable: false,
+          sortable: false,
+          filter: false,
+          width: 80,
+          dayIndex: dayIndex,
+          // return a React element so React can render it properly
+          cellRendererFramework: (params) => (
+            <input
+              type="checkbox"
+              disabled
+              checked={!!params.value}
+              aria-label={`day-${dayIndex + 1}`}
+            />
+          ),
+        };
+      });
 
       setColDefs([...initialCols, ...dayColumns]);
       const rowObj = { date: `${month}/${year}`, month };
