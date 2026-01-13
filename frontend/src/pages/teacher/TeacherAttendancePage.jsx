@@ -1,8 +1,6 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import TeacherHeader from "../../components/TeacherHeader";
-import DatePicker from "react-datepicker";
 import useTeacherStore from "../../store/teacherStore.js";
-import "react-datepicker/dist/react-datepicker.css";
 import toast from "react-hot-toast";
 
 import { AgGridReact } from "ag-grid-react";
@@ -13,11 +11,7 @@ import { Loader } from "lucide-react";
 ModuleRegistry.registerModules([AllCommunityModule]);
 
 const CheckboxCellRenderer = React.memo((props) => {
-  const { updateRecord } = useTeacherStore();
-
   const { value, data, colDef } = props;
-  const dayIndex = colDef.dayIndex;
-  const attendanceId = data.attendanceId;
 
   const [isChecked, setIsChecked] = useState(value);
 
@@ -25,40 +19,10 @@ const CheckboxCellRenderer = React.memo((props) => {
     setIsChecked(value);
   }, [value]);
 
-  const handleChange = async () => {
+  const handleChange = () => {
     const newCheckedState = !isChecked;
     setIsChecked(newCheckedState);
-    const payload = {
-      attendanceId: attendanceId,
-      dayIndex: dayIndex,
-      isPresent: newCheckedState,
-    };
-
-    try {
-      const result = await updateRecord(payload);
-
-      if (result.success) {
-        toast.success(
-          `Attendance for Day ${dayIndex + 1} set to: ${
-            newCheckedState ? "Present" : "Absent"
-          }`
-        );
-
-        // Update the attendance data in the grid
-        const newDailyAttendance = [...props.data.dailyAttendance];
-        newDailyAttendance[dayIndex] = newCheckedState;
-
-        props.api.applyTransaction({
-          update: [{ ...props.data, dailyAttendance: newDailyAttendance }],
-        });
-      } else {
-        setIsChecked(props.value); // Revert to initial value if update fails
-        toast.error("Failed to update attendance on the server.");
-      }
-    } catch (error) {
-      setIsChecked(props.value); // Revert to initial value if network error
-      toast.error("Network error during attendance update.");
-    }
+    props.node.setData({ ...props.data, isPresent: newCheckedState });
   };
 
   return (
@@ -81,7 +45,7 @@ const AttendancePage = () => {
   const [selectedClassId, setSelectedClassId] = useState("");
   const [selectedSubjectId, setSelectedSubjectId] = useState("");
   const [rowData, setRowData] = useState([]);
-  const [startDate, setStartDate] = useState(new Date());
+  const gridRef = useRef();
   const [colDefs, setColDefs] = useState([
     {
       headerName: "#",
@@ -95,14 +59,23 @@ const AttendancePage = () => {
       filter: true,
       width: 150,
     },
+    {
+      headerName: "Present",
+      field: "isPresent",
+      cellRenderer: CheckboxCellRenderer,
+      editable: false,
+      sortable: false,
+      filter: false,
+      width: 100,
+    },
   ]);
 
   const {
     isLoading,
     isLoadingAttendance,
     getAllClassesAndSubjects,
-    getAllStudentsAndAttendance,
-    updateRecord,
+    getStudentsAttendanceForDay,
+    submitAttendance,
   } = useTeacherStore();
 
   const normalizeSubjects = (subjectIds) => {
@@ -163,8 +136,6 @@ const AttendancePage = () => {
     return normalizeSubjects(selectedClass?.subjectIds);
   }, [selectedClass]);
 
-  const handleDateChange = (date) => setStartDate(date);
-
   const handleClassChange = (e) => {
     const newClassId = e.target.value;
     setSelectedClassId(newClassId);
@@ -183,130 +154,26 @@ const AttendancePage = () => {
       return;
     }
 
-    const year = startDate.getFullYear();
-    const month = (startDate.getMonth() + 1).toString().padStart(2, "0");
+    const today = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
 
     try {
       if (isLoadingAttendance) return;
 
-      const data = await getAllStudentsAndAttendance(
-        month,
-        year,
+      const data = await getStudentsAttendanceForDay(
+        today,
         selectedClassId,
         selectedSubjectId
       );
       console.log(data);
 
       if (data?.success && data.attendanceList) {
-        const flattenedData = data.attendanceList.flat().map((item) => ({
-          id: item.studentId._id,
-          firstName: item.studentId.firstName,
-          secondName: item.studentId.secondName,
-          dailyAttendance: item.dialyAttendance,
-          attendanceId: item._id,
-        }));
-
-        setRowData(flattenedData);
-
-        if (flattenedData.length > 0) {
-          const daysInMonth = flattenedData[0].dailyAttendance.length;
-
-          const initialCols = [
-            {
-              headerName: "#",
-              valueGetter: (params) => params.node.rowIndex + 1,
-              width: 70,
-              sortable: false,
-              filter: false,
-              pinned: "left",
-            },
-            {
-              field: "firstName",
-              headerName: "First Name",
-              filter: true,
-              width: 150,
-              pinned: "left",
-            },
-            {
-              field: "secondName",
-              headerName: "Second Name",
-              filter: true,
-              width: 150,
-              pinned: "left",
-            },
-          ];
-
-          const dayColumns = Array.from(
-            { length: daysInMonth },
-            (_, dayIndex) => {
-              const date = new Date(
-                parseInt(year),
-                parseInt(month) - 1,
-                dayIndex + 1
-              );
-              const dayName = date
-                .toLocaleDateString("en-US", { weekday: "short" })
-                .toLowerCase();
-              return {
-                headerName: `${dayName}, ${dayIndex + 1}`,
-                field: `day_${dayIndex + 1}`,
-                valueGetter: (params) => params.data.dailyAttendance[dayIndex],
-                cellRenderer: CheckboxCellRenderer,
-                editable: false,
-                sortable: false,
-                filter: false,
-                width: 80,
-                dayIndex: dayIndex,
-              };
-            }
-          );
-
-          setColDefs([...initialCols, ...dayColumns]);
-        } else {
-          setColDefs([
-            {
-              headerName: "#",
-              valueGetter: (params) => params.node.rowIndex + 1,
-              width: 70,
-            },
-            {
-              field: "firstName",
-              headerName: "First Name",
-              filter: true,
-              width: 150,
-            },
-            {
-              field: "secondName",
-              headerName: "Second Name",
-              filter: true,
-              width: 150,
-            },
-          ]);
-        }
-
-        toast.success("Attendance data retrieved and table updated.");
+        setRowData(
+          data.attendanceList.map((item) => ({ ...item, id: item.studentId }))
+        );
+        toast.success("Attendance data retrieved successfully.");
       } else {
         toast.error(data?.message || "Failed to load attendance data.");
         setRowData([]);
-        setColDefs([
-          {
-            headerName: "#",
-            valueGetter: (params) => params.node.rowIndex + 1,
-            width: 70,
-          },
-          {
-            field: "firstName",
-            headerName: "First Name",
-            filter: true,
-            width: 150,
-          },
-          {
-            field: "secondName",
-            headerName: "Second Name",
-            filter: true,
-            width: 150,
-          },
-        ]);
       }
     } catch (error) {
       console.error(error);
@@ -314,64 +181,46 @@ const AttendancePage = () => {
     }
   };
 
-  const generateReport = () => {
-    if (rowData.length === 0) {
-      toast.error(
-        "No attendance data selected to generate a report. Please click 'Search' first."
-      );
+  const handleSubmitAttendance = async () => {
+    if (!gridRef.current) return;
+
+    const currentData = [];
+    gridRef.current.api.forEachNode((node) => currentData.push(node.data));
+
+    if (currentData.length === 0) {
+      toast.error("No attendance data to submit.");
       return;
     }
 
-    const classInfo = selectedClass ? selectedClass.name : "UnknownClass";
-    const subjectInfo =
-      availableSubjects.find((sub) => sub._id === selectedSubjectId)?.name ||
-      "UnknownSubject";
-    const monthYear = startDate.toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "long",
-    });
+    const today = new Date().toISOString().split("T")[0];
 
-    // Prepare CSV content
-    const header = [
-      "First Name",
-      "Second Name",
-      ...colDefs
-        .filter((c) => c.dayIndex !== undefined)
-        .map((c) => c.headerName),
-      "Total Present",
-      "Total Absent",
-    ];
-    const csvRows = [header.join(",")];
+    const attendanceData = currentData.map((row) => ({
+      studentId: row.studentId,
+      isPresent: row.isPresent,
+    }));
 
-    rowData.forEach((row) => {
-      const dailyAttendanceStatus = row.dailyAttendance.map((isPresent) =>
-        isPresent ? "P" : "A"
+    try {
+      const result = await submitAttendance(
+        today,
+        selectedClassId,
+        selectedSubjectId,
+        attendanceData
       );
-      const totalPresent = row.dailyAttendance.filter(Boolean).length;
-      const totalAbsent = row.dailyAttendance.length - totalPresent;
+      if (result.success) {
+        toast.success("Attendance submitted successfully.");
+      } else {
+        toast.error(result.message || "Failed to submit attendance.");
+      }
+    } catch (error) {
+      toast.error("Error submitting attendance.");
+    }
+  };
 
-      const rowArray = [
-        row.firstName,
-        row.secondName,
-        ...dailyAttendanceStatus,
-        totalPresent,
-        totalAbsent,
-      ];
-      csvRows.push(rowArray.join(","));
-    });
-
-    const csvString = csvRows.join("\n");
-
-    // Create a Blob and a link to download the CSV
-    const blob = new Blob([csvString], { type: "text/csv;charset=utf-8;" });
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.download = `Attendance_Report_${classInfo}_${subjectInfo}_${monthYear}.csv`;
-    link.click();
-
-    toast.success(
-      `Report for ${classInfo} (${subjectInfo}) downloaded successfully!`
-    );
+  const handleSelectAll = (isPresent) => {
+    if (!gridRef.current) return;
+    const updatedData = rowData.map((row) => ({ ...row, isPresent }));
+    setRowData(updatedData);
+    gridRef.current.api.setRowData(updatedData);
   };
 
   return (
@@ -381,7 +230,7 @@ const AttendancePage = () => {
         <form onSubmit={handleSearch}>
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
-              <h2 className="text-lg font-bold">Select Class & Subject</h2>
+              <h2 className="text-lg font-bold">Select Class</h2>
               <select
                 className={INPUT_STYLE}
                 onChange={handleClassChange}
@@ -408,16 +257,6 @@ const AttendancePage = () => {
                 ))}
               </select>
             </div>
-            <div>
-              <h2 className="text-lg font-bold">Select Date</h2>
-              <DatePicker
-                selected={startDate}
-                onChange={handleDateChange}
-                dateFormat="yyyy/MM"
-                showMonthYearPicker
-                className={INPUT_STYLE}
-              />
-            </div>
             <div className="flex gap-4 mt-4 md:mt-0">
               <button
                 type="submit"
@@ -426,32 +265,47 @@ const AttendancePage = () => {
                 {isLoadingAttendance ? (
                   <Loader className="animate-spin h-5 w-5" />
                 ) : (
-                  "Search"
+                  "Load Students"
                 )}
-              </button>
-              <button
-                type="button"
-                onClick={generateReport}
-                disabled={rowData.length === 0 || isLoadingAttendance}
-                className={`px-4 py-2 rounded-md shadow-md focus:outline-none transition duration-150 
-         ${
-           rowData.length > 0 && !isLoadingAttendance
-             ? "bg-red-500 text-white hover:bg-red-600"
-             : "bg-gray-300 text-gray-500 cursor-not-allowed"
-         }`}
-              >
-                Generate Report
               </button>
             </div>
           </div>
         </form>
+        {rowData.length > 0 && (
+          <div className="mt-4 flex gap-4">
+            <button
+              onClick={() => handleSelectAll(true)}
+              className="bg-green-500 text-white px-4 py-2 rounded-md shadow-md hover:bg-green-600 focus:outline-none"
+            >
+              Select All Present
+            </button>
+            <button
+              onClick={() => handleSelectAll(false)}
+              className="bg-red-500 text-white px-4 py-2 rounded-md shadow-md hover:bg-red-600 focus:outline-none"
+            >
+              Select All Absent
+            </button>
+            <button
+              onClick={handleSubmitAttendance}
+              className="bg-blue-500 text-white px-4 py-2 rounded-md shadow-md hover:bg-blue-600 focus:outline-none"
+            >
+              {isLoadingAttendance ? (
+                <Loader className="animate-spin h-5 w-5" />
+              ) : (
+                "Submit Attendance"
+              )}
+            </button>
+          </div>
+        )}
       </div>
       <div className="mt-6">
         <div className="ag-theme-alpine" style={{ height: 400 }}>
           <AgGridReact
+            ref={gridRef}
             columnDefs={colDefs}
             rowData={rowData}
             pagination
+            getRowId={(params) => params.data.id}
             frameworkComponents={{ checkboxCellRenderer: CheckboxCellRenderer }}
             rowSelection="multiple"
           />
