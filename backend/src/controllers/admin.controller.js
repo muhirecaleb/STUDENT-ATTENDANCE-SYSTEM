@@ -26,14 +26,36 @@ export const adminLogin = async (req, res) => {
       email === process.env.ADMIN_EMAIL &&
       password === process.env.ADMIN_PASSWORD
     ) {
-      const token = jwt.sign({ email, role: "Admin" }, process.env.JWT_SECRET);
+      // Find or create admin user record
+      let adminUser = await User.findOne({ email, role: "admin" });
+      if (!adminUser) {
+        adminUser = new User({
+          email,
+          password: await bcrypt.hash(password, 10),
+          role: "admin",
+          firstName: "Admin",
+          secondName: "User",
+          color: generateRandomColor(),
+        });
+        await adminUser.save();
+      }
+
+      const token = jwt.sign(
+        {
+          userInfo: {
+            ...adminUser._doc,
+            password: undefined,
+          },
+        },
+        process.env.JWT_SECRET
+      );
 
       res.status(200).json({
         success: true,
         token,
         user: {
-          email,
-          role: "admin",
+          ...adminUser._doc,
+          password: undefined,
         },
       });
     } else {
@@ -651,106 +673,163 @@ export const deleteStudent = async (req, res) => {
   }
 };
 
-
 //API for attendance of each month of the selected year
 export const getMonthlyAttendance = async (req, res) => {
   const { year: yearString } = req.body;
   if (!yearString) {
-    return res.status(400).json({ success: false, message: "Year is required." });
+    return res
+      .status(400)
+      .json({ success: false, message: "Year is required." });
   }
 
   const year = parseInt(yearString, 10);
   if (isNaN(year)) {
-    return res.status(400).json({ success: false, message: "Invalid year format." });
+    return res
+      .status(400)
+      .json({ success: false, message: "Invalid year format." });
   }
 
   try {
-    const monthlyAttendancePercentages = await Attendance.aggregate([
-      {
-        $match: {
-          year: year
-        }
-      },
-
+    const result = await Attendance.aggregate([
       {
         $addFields: {
-          presentCount: {
-            $size: {
-              $filter: {
-                input: "$dialyAttendance",
-                as: "day",
-                cond: { $eq: ["$$day", true] }
-              }
-            }
-          },
-          absentCount: {
-            $size: {
-              $filter: {
-                input: "$dialyAttendance",
-                as: "day",
-                cond: { $eq: ["$$day", false] }
-              }
-            }
-          },
-          totalDays: { $size: "$dialyAttendance" }
-        }
+          year: { $year: "$date" },
+          month: { $month: "$date" },
+        },
       },
-
       {
-        $group: {
-          _id: "$month", 
-          totalPresent: { $sum: "$presentCount" },
-          totalAbsent: { $sum: "$absentCount" },
-          totalPossibleAttendance: { $sum: "$totalDays" } 
-        }
+        $match: {
+          year: year,
+        },
       },
-
       {
-        $project: {
-          _id: 0, 
-          month: "$_id", 
-          totalPresent: {
-            $concat: [
-              {
-                $toString: {
-                  $round: [
-                    { $multiply: [ { $divide: ["$totalPresent", "$totalPossibleAttendance"] }, 100 ] },
-                    2 
-                  ]
-                }
+        $facet: {
+          monthly: [
+            {
+              $group: {
+                _id: "$month",
+                totalPresent: { $sum: { $cond: ["$isPresent", 1, 0] } },
+                totalAbsent: { $sum: { $cond: ["$isPresent", 0, 1] } },
+                totalPossibleAttendance: { $sum: 1 },
               },
-              "%"
-            ]
-          },
-
-          totalAbsent: {
-            $concat: [
-              {
-                $toString: {
-                  $round: [
-                    { $multiply: [ { $divide: ["$totalAbsent", "$totalPossibleAttendance"] }, 100 ] },
-                    2 
-                  ]
-                }
+            },
+            {
+              $project: {
+                _id: 0,
+                month: "$_id",
+                totalPresent: {
+                  $concat: [
+                    {
+                      $toString: {
+                        $round: [
+                          {
+                            $multiply: [
+                              {
+                                $divide: [
+                                  "$totalPresent",
+                                  "$totalPossibleAttendance",
+                                ],
+                              },
+                              100,
+                            ],
+                          },
+                          2,
+                        ],
+                      },
+                    },
+                    "%",
+                  ],
+                },
+                totalAbsent: {
+                  $concat: [
+                    {
+                      $toString: {
+                        $round: [
+                          {
+                            $multiply: [
+                              {
+                                $divide: [
+                                  "$totalAbsent",
+                                  "$totalPossibleAttendance",
+                                ],
+                              },
+                              100,
+                            ],
+                          },
+                          2,
+                        ],
+                      },
+                    },
+                    "%",
+                  ],
+                },
               },
-              "%"
-            ]
-          },
-        }
+            },
+            {
+              $sort: {
+                month: 1,
+              },
+            },
+          ],
+          overall: [
+            {
+              $group: {
+                _id: null,
+                totalPresent: { $sum: { $cond: ["$isPresent", 1, 0] } },
+                totalAbsent: { $sum: { $cond: ["$isPresent", 0, 1] } },
+                totalPossibleAttendance: { $sum: 1 },
+              },
+            },
+            {
+              $project: {
+                _id: 0,
+                totalPresentPercentage: {
+                  $round: [
+                    {
+                      $multiply: [
+                        {
+                          $divide: [
+                            "$totalPresent",
+                            "$totalPossibleAttendance",
+                          ],
+                        },
+                        100,
+                      ],
+                    },
+                    2,
+                  ],
+                },
+                totalAbsentPercentage: {
+                  $round: [
+                    {
+                      $multiply: [
+                        {
+                          $divide: ["$totalAbsent", "$totalPossibleAttendance"],
+                        },
+                        100,
+                      ],
+                    },
+                    2,
+                  ],
+                },
+              },
+            },
+          ],
+        },
       },
-
-      {
-        $sort: {
-          month: 1
-        }
-      }
     ]);
+
+    const monthlyAttendance = result[0]?.monthly || [];
+    const overall = result[0]?.overall[0] || {
+      totalPresentPercentage: 0,
+      totalAbsentPercentage: 0,
+    };
 
     res.status(200).json({
       success: true,
-      monthlyAttendance: monthlyAttendancePercentages
+      monthlyAttendance,
+      overall,
     });
-
   } catch (error) {
     console.error("Error while fetching monthly attendance:", error);
     res.status(500).json({ success: false, message: "Internal server error" });
@@ -771,8 +850,8 @@ export const getCounts = async (_, res) => {
         students: studentCount,
         teachers: teacherCount,
         classes: classCount,
-        subjects: subjectCount
-      }
+        subjects: subjectCount,
+      },
     });
   } catch (error) {
     console.error("Error while fetching counts:", error);
@@ -781,22 +860,23 @@ export const getCounts = async (_, res) => {
 };
 
 export const getClasses = async (_, res) => {
-    try {
-        const classes = await Class.find()
-            .select('-createdAt -updatedAt -__v') 
-            .populate({
-                path: 'students',
-                select: '-password -email -createdAt -updatedAt -__v'
-            });
+  try {
+    const classes = await Class.find()
+      .select("-createdAt -updatedAt -__v")
+      .populate({
+        path: "students",
+        select: "-password -email -createdAt -updatedAt -__v",
+      });
 
-        if (!classes || classes.length === 0) {
-            return res.status(404).json({ success: false, message: "No classes found." });
-        }
-
-        return res.status(200).json({ success: true, classes });
-
-    } catch (error) {
-        console.error("Error while fetching all classes:", error);
-        res.status(500).json({ success: false, message: "Internal server error" });
+    if (!classes || classes.length === 0) {
+      return res
+        .status(404)
+        .json({ success: false, message: "No classes found." });
     }
+
+    return res.status(200).json({ success: true, classes });
+  } catch (error) {
+    console.error("Error while fetching all classes:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
 };

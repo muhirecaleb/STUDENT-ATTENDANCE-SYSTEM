@@ -1,29 +1,31 @@
 import jwt from "jsonwebtoken";
 
 const verifyAuth = async (req, res, next) => {
-    const { token } = req.body;
+  const authHeader = req.headers.authorization;
 
-    if (!token) {
-        return res.status(401).json({
-            success: false,
-            message: "No token provided",
-        });
-    }
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return res.status(401).json({
+      success: false,
+      message: "No token provided",
+    });
+  }
 
-    try {
-        const decoded =  jwt.verify(token, process.env.JWT_SECRET);
+  const token = authHeader.substring(7); // Remove 'Bearer ' prefix
 
-        req.body.user = decoded;
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-        return next();
-    } catch (error) {
-        console.error("Token verification failed:", error);
+    req.user = decoded;
 
-        return res.status(400).json({
-            success: false,
-            message: "Invalid or expired token",
-        });
-    }
+    return next();
+  } catch (error) {
+    console.error("Token verification failed:", error);
+
+    return res.status(400).json({
+      success: false,
+      message: "Invalid or expired token",
+    });
+  }
 };
 
 export default verifyAuth;

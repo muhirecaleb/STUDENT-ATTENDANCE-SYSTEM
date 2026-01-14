@@ -20,6 +20,7 @@ const AddTeacherPage = () => {
 
   const [availableClasses, setAvailableClasses] = useState([]);
   const [teacherClasses, setTeacherClasses] = useState([]);
+  const [allTeachers, setAllTeachers] = useState([]);
   const dialogRef = useRef(null);
 
   const {
@@ -120,9 +121,33 @@ const AddTeacherPage = () => {
     setTeacherClasses(updated);
   };
 
-  // Remove class block
-  const handleRemoveClass = (index) => {
-    setTeacherClasses(teacherClasses.filter((_, i) => i !== index));
+  // Get available subjects for a class, filtering out those already assigned to other teachers
+  const getAvailableSubjectsForClass = (
+    classId,
+    currentTeacherEmail = null
+  ) => {
+    const selectedClass = availableClasses.find(
+      (cls) => cls._id.toString() === classId
+    );
+    if (!selectedClass) return [];
+
+    // Get all subject IDs that are already assigned to other teachers
+    const assignedSubjectIds = new Set();
+    allTeachers.forEach((teacher) => {
+      // Skip the current teacher being edited
+      if (currentTeacherEmail && teacher.email === currentTeacherEmail) return;
+
+      if (teacher.subjectIds) {
+        teacher.subjectIds.forEach((subjectId) => {
+          assignedSubjectIds.add(subjectId.toString());
+        });
+      }
+    });
+
+    // Filter out subjects that are already assigned to other teachers
+    return selectedClass.subjectIds.filter(
+      (subject) => !assignedSubjectIds.has(subject._id.toString())
+    );
   };
 
   const [isEditing, setIsEditing] = useState(false);
@@ -137,6 +162,7 @@ const AddTeacherPage = () => {
         toast.success("Teacher deleted successfully");
         const data = await getAllTeachers();
         setRowData(data.teachers || []);
+        setAllTeachers(data.teachers || []);
       } else {
         toast.error(res.message || "Failed to delete teacher");
       }
@@ -179,8 +205,6 @@ const AddTeacherPage = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    
-
     // Collect all selected class IDs
     const classes = teacherClasses
       .map((c) => c.class_Id)
@@ -211,6 +235,7 @@ const AddTeacherPage = () => {
           setTeacherClasses([]);
           const teachersData = await getAllTeachers();
           setRowData(teachersData.teachers || []);
+          setAllTeachers(teachersData.teachers || []);
         } else {
           toast.error(data.message || "Failed to update teacher");
         }
@@ -241,6 +266,7 @@ const AddTeacherPage = () => {
         setTeacherClasses([]);
         const teachersData = await getAllTeachers();
         setRowData(teachersData.teachers || []);
+        setAllTeachers(teachersData.teachers || []);
       }
     } catch (error) {
       console.log("Error adding teacher:", error);
@@ -253,9 +279,10 @@ const AddTeacherPage = () => {
       try {
         const data = await getAllTeachers();
         setRowData(data.teachers || []);
+        setAllTeachers(data.teachers || []);
       } catch (error) {
         console.log("Error fetching teachers:", error);
-          toast.error("Error fetching teachers");
+        toast.error("Error fetching teachers");
       }
     };
 
@@ -379,7 +406,10 @@ const AddTeacherPage = () => {
                         Available Subjects
                       </label>
                       <div className="flex flex-wrap gap-3">
-                        {selectedClass.subjectIds.map((subj) => (
+                        {getAvailableSubjectsForClass(
+                          selectedClass._id,
+                          isEditing ? originalEmail : null
+                        ).map((subj) => (
                           <label
                             key={subj._id}
                             className="flex items-center gap-1 text-sm"
@@ -396,6 +426,15 @@ const AddTeacherPage = () => {
                             {subj.name}
                           </label>
                         ))}
+                        {getAvailableSubjectsForClass(
+                          selectedClass._id,
+                          isEditing ? originalEmail : null
+                        ).length === 0 && (
+                          <p className="text-sm text-gray-500 italic">
+                            All subjects in this class are already assigned to
+                            other teachers.
+                          </p>
+                        )}
                       </div>
                     </div>
                   )}
@@ -446,7 +485,7 @@ const AddTeacherPage = () => {
         {isLoading ? (
           <div className="w-full h-full flex justify-center items-center">
             {" "}
-      <Loader className="animate-spin text-[#6c62ff]" />
+            <Loader className="animate-spin text-[#6c62ff]" />
           </div>
         ) : (
           <AgGridReact
