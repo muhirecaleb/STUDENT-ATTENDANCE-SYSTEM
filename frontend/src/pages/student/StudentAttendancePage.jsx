@@ -14,12 +14,19 @@ import { useEffect } from "react";
 ModuleRegistry.registerModules([AllCommunityModule]);
 
 const StudentAttendancePage = () => {
-  const { getAttendace, isLoading, getSubjects, isLoadingSubjects } =
-    useStudentStore();
+  const {
+    getAttendace,
+    isLoading,
+    getSubjects,
+    isLoadingSubjects,
+    getAttendanceYears,
+  } = useStudentStore();
   const { user } = authStore();
   const [selectedSubjectId, setSelectedSubjectId] = useState("");
   const [subjects, setSubjects] = useState([]);
   const [startDate, setStartDate] = useState(new Date());
+  const [availableYears, setAvailableYears] = useState([]);
+  const [message, setMessage] = useState("");
 
   const [colDefs, setColDefs] = useState([
     {
@@ -59,10 +66,27 @@ const StudentAttendancePage = () => {
       selectedSubjectId
     );
     if (response.success) {
+      setMessage(""); // clear message
       if (response.attendance.length === 0) {
         setRowData([]);
-        toast.error(
-          "No attendance records found for the selected month and subject"
+        setColDefs([
+          {
+            headerName: "Date",
+            field: "date",
+            sortable: true,
+            filter: true,
+            flex: 1,
+          },
+          {
+            headerName: "Status",
+            field: "status",
+            sortable: true,
+            filter: true,
+            flex: 1,
+          },
+        ]);
+        setMessage(
+          "There was no attendance made in the selected month for the chosen subject."
         );
         return;
       }
@@ -119,9 +143,9 @@ const StudentAttendancePage = () => {
       });
 
       setRowData([rowObj]);
-      toast.success("Attendance fetched successfully");
+      setMessage("Attendance fetched successfully");
     } else {
-      toast.error(response.message || "Failed to fetch attendance");
+      setMessage(response.message || "Failed to fetch attendance");
     }
   };
 
@@ -137,8 +161,19 @@ const StudentAttendancePage = () => {
       }
     };
 
+    const fetchYears = async () => {
+      const response = await getAttendanceYears(user._id);
+      if (response.success) {
+        setAvailableYears(response.years);
+        if (response.years.length > 0) {
+          setStartDate(new Date(response.years[0], 0)); // set to first available year, Jan
+        }
+      }
+    };
+
     fetchSubjects();
-  }, [getSubjects, user._id]);
+    fetchYears();
+  }, [getSubjects, getAttendanceYears, user._id]);
 
   return (
     <div>
@@ -174,6 +209,20 @@ const StudentAttendancePage = () => {
                   onChange={handleDateChange}
                   dateFormat="yyyy/MM"
                   showMonthYearPicker
+                  minDate={
+                    availableYears.length > 0
+                      ? new Date(
+                          availableYears[availableYears.length - 1],
+                          0,
+                          1
+                        )
+                      : undefined
+                  }
+                  maxDate={
+                    availableYears.length > 0
+                      ? new Date(availableYears[0], 11, 31)
+                      : undefined
+                  }
                   className={INPUT_STYLE}
                 />
               </div>
@@ -192,6 +241,11 @@ const StudentAttendancePage = () => {
           </form>
 
           <div className="mt-6">
+            {message && (
+              <div className="mb-4 p-4 bg-blue-100 border border-blue-300 rounded-md text-blue-800">
+                {message}
+              </div>
+            )}
             <div className="ag-theme-alpine" style={{ height: 400 }}>
               <AgGridReact
                 columnDefs={colDefs}

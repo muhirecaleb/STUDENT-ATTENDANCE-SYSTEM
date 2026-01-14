@@ -7,29 +7,32 @@ import adminRoutes from "./routes/admin.route.js";
 import studentRoutes from "./routes/student.route.js";
 import teacherRoutes from "./routes/teacher.route.js";
 import authRoutes from "./routes/auth.route.js";
+import timetableRoutes from "./routes/timetable.route.js";
 
 dotenv.config();
 
 const app = express();
 
 //middlewares
-app.use(cors({
-    origin: 'http://localhost:3000',
-    methods: ['POST', 'UPDATE', 'DELETE' , 'GET'],
-    credentials: true
-}));
+app.use(
+  cors({
+    origin: "http://localhost:3000",
+    methods: ["POST", "UPDATE", "DELETE", "GET"],
+    credentials: true,
+  })
+);
 
 app.use(express.json());
-app.use('/api/admin' , adminRoutes);
-app.use('/api/auth' , authRoutes);
-app.use('/api/teacher' , teacherRoutes);
-app.use('/api/student' , studentRoutes);
+app.use("/api/admin", adminRoutes);
+app.use("/api/auth", authRoutes);
+app.use("/api/teacher", teacherRoutes);
+app.use("/api/student", studentRoutes);
+app.use("/api/timetable", timetableRoutes);
 
-
-const PORT = process.env.PORT || 4000
+const PORT = process.env.PORT || 4000;
 
 connectDB().then(() => {
-    app.listen(PORT, () => {
-   console.log(`✅ Server is Listening on ${PORT}`);
-    })
+  app.listen(PORT, "0.0.0.0", () => {
+    console.log(`✅ Server is Listening on ${PORT}`);
+  });
 });

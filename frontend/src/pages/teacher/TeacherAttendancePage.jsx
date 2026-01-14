@@ -275,7 +275,7 @@ const AttendancePage = () => {
           <div className="mt-4 flex gap-4">
             <button
               onClick={() => handleSelectAll(true)}
-              className="bg-green-500 text-white px-4 py-2 rounded-md shadow-md hover:bg-green-600 focus:outline-none"
+              className="bg-green-500  text-white px-4 py-2 rounded-md shadow-md hover:bg-green-600 focus:outline-none"
             >
               Select All Present
             </button>
